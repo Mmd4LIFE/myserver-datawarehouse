@@ -24,3 +24,7 @@ RUN rm /opt/airflow/requirements.txt
 
 # docker network connect pricecalc_default airflow-scheduler
 # docker network connect pricecalc_default airflow-worker
+
+
+
+# docker exec airflow-scheduler airflow dags list | grep historical
