@@ -1,10 +1,80 @@
 from airflow.hooks.postgres_hook import PostgresHook
 import logging
 from typing import Optional, Dict, Any
+import pandas as pd
+
+# Global variables to cache dimension data
+_sources_df = None
+_sides_df = None
+
+def _load_sources_dimension(**context) -> pd.DataFrame:
+    """
+    Load sources dimension table into a pandas DataFrame for fast lookup.
+    This function caches the data to avoid repeated database queries.
+    
+    Returns:
+        pd.DataFrame: DataFrame with columns ['id', 'name']
+    """
+    global _sources_df
+    
+    if _sources_df is None:
+        try:
+            # Connect to gold_dw database
+            gold_dw_hook = PostgresHook(postgres_conn_id='datawarehouse')
+            
+            # Query to get all sources
+            query = """
+            SELECT id, name 
+            FROM sources 
+            WHERE deleted_at IS NULL 
+            ORDER BY id
+            """
+            
+            _sources_df = gold_dw_hook.get_pandas_df(query)
+            logging.info(f"Loaded {len(_sources_df)} sources into memory: {list(_sources_df['name'].values)}")
+            
+        except Exception as e:
+            logging.error(f"Error loading sources dimension: {str(e)}")
+            raise
+    
+    return _sources_df
+
+def _load_sides_dimension(**context) -> pd.DataFrame:
+    """
+    Load sides dimension table into a pandas DataFrame for fast lookup.
+    This function caches the data to avoid repeated database queries.
+    
+    Returns:
+        pd.DataFrame: DataFrame with columns ['id', 'name']
+    """
+    global _sides_df
+    
+    if _sides_df is None:
+        try:
+            # Connect to gold_dw database
+            gold_dw_hook = PostgresHook(postgres_conn_id='datawarehouse')
+            
+            # Query to get all sides
+            query = """
+            SELECT id, name 
+            FROM sides 
+            WHERE deleted_at IS NULL 
+            ORDER BY id
+            """
+            
+            _sides_df = gold_dw_hook.get_pandas_df(query)
+            logging.info(f"Loaded {len(_sides_df)} sides into memory: {list(_sides_df['name'].values)}")
+            
+        except Exception as e:
+            logging.error(f"Error loading sides dimension: {str(e)}")
+            raise
+    
+    return _sides_df
 
 def detect_source(source_name: str, **context) -> Optional[int]:
     """
-    Detect source ID from sources table in gold_dw database.
+    Detect source ID from sources dimension using in-memory DataFrame lookup.
+    This is much more efficient than individual database queries.
     
     Args:
         source_name (str): Name of the source (e.g., 'milli', 'taline', etc.)
@@ -18,22 +88,16 @@ def detect_source(source_name: str, **context) -> Optional[int]:
         detect_source('taline') -> 2
     """
     try:
-        # Connect to gold_dw database
-        gold_dw_hook = PostgresHook(postgres_conn_id='gold_dw')
+        # Load sources dimension (cached)
+        sources_df = _load_sources_dimension(**context)
         
-        # Query to get source ID
-        query = """
-        SELECT id 
-        FROM sources 
-        WHERE name = %s AND deleted_at IS NULL
-        """
+        # Find the source ID using pandas lookup
+        source_row = sources_df[sources_df['name'] == source_name]
         
-        result = gold_dw_hook.get_first(query, parameters=(source_name,))
-        
-        if result:
-            source_id = result[0]
-            logging.info(f"Found source '{source_name}' with ID: {source_id}")
-            return source_id
+        if not source_row.empty:
+            source_id = source_row.iloc[0]['id']
+            logging.debug(f"Found source '{source_name}' with ID: {source_id}")
+            return int(source_id)
         else:
             logging.warning(f"Source '{source_name}' not found in sources table")
             return None
@@ -44,7 +108,8 @@ def detect_source(source_name: str, **context) -> Optional[int]:
 
 def detect_side(side_name: str, **context) -> Optional[int]:
     """
-    Detect side ID from sides table in gold_dw database.
+    Detect side ID from sides dimension using in-memory DataFrame lookup.
+    This is much more efficient than individual database queries.
     
     Args:
         side_name (str): Name of the side ('buy' or 'sell')
@@ -58,22 +123,16 @@ def detect_side(side_name: str, **context) -> Optional[int]:
         detect_side('sell') -> 2
     """
     try:
-        # Connect to gold_dw database
-        gold_dw_hook = PostgresHook(postgres_conn_id='gold_dw')
+        # Load sides dimension (cached)
+        sides_df = _load_sides_dimension(**context)
         
-        # Query to get side ID
-        query = """
-        SELECT id 
-        FROM sides 
-        WHERE name = %s AND deleted_at IS NULL
-        """
+        # Find the side ID using pandas lookup
+        side_row = sides_df[sides_df['name'] == side_name]
         
-        result = gold_dw_hook.get_first(query, parameters=(side_name,))
-        
-        if result:
-            side_id = result[0]
-            logging.info(f"Found side '{side_name}' with ID: {side_id}")
-            return side_id
+        if not side_row.empty:
+            side_id = side_row.iloc[0]['id']
+            logging.debug(f"Found side '{side_name}' with ID: {side_id}")
+            return int(side_id)
         else:
             logging.warning(f"Side '{side_name}' not found in sides table")
             return None
@@ -82,9 +141,86 @@ def detect_side(side_name: str, **context) -> Optional[int]:
         logging.error(f"Error detecting side '{side_name}': {str(e)}")
         raise
 
+def map_sources_batch(source_names: list, **context) -> Dict[str, int]:
+    """
+    Map multiple source names to their IDs in batch using in-memory DataFrame.
+    This is much more efficient than individual lookups.
+    
+    Args:
+        source_names (list): List of source names to map
+        **context: Airflow context
+        
+    Returns:
+        Dict[str, int]: Dictionary mapping source names to their IDs
+        
+    Example:
+        map_sources_batch(['milli', 'taline', 'digikala']) -> {'milli': 1, 'taline': 2, 'digikala': 3}
+    """
+    try:
+        # Load sources dimension (cached)
+        sources_df = _load_sources_dimension(**context)
+        
+        # Create a mapping dictionary
+        sources_dict = dict(zip(sources_df['name'], sources_df['id']))
+        
+        # Map the requested source names
+        result = {}
+        for source_name in source_names:
+            if source_name in sources_dict:
+                result[source_name] = int(sources_dict[source_name])
+            else:
+                logging.warning(f"Source '{source_name}' not found in sources table")
+                result[source_name] = None
+        
+        logging.info(f"Mapped {len(result)} sources: {result}")
+        return result
+        
+    except Exception as e:
+        logging.error(f"Error mapping sources batch: {str(e)}")
+        raise
+
+def map_sides_batch(side_names: list, **context) -> Dict[str, int]:
+    """
+    Map multiple side names to their IDs in batch using in-memory DataFrame.
+    This is much more efficient than individual lookups.
+    
+    Args:
+        side_names (list): List of side names to map
+        **context: Airflow context
+        
+    Returns:
+        Dict[str, int]: Dictionary mapping side names to their IDs
+        
+    Example:
+        map_sides_batch(['buy', 'sell']) -> {'buy': 1, 'sell': 2}
+    """
+    try:
+        # Load sides dimension (cached)
+        sides_df = _load_sides_dimension(**context)
+        
+        # Create a mapping dictionary
+        sides_dict = dict(zip(sides_df['name'], sides_df['id']))
+        
+        # Map the requested side names
+        result = {}
+        for side_name in side_names:
+            if side_name in sides_dict:
+                result[side_name] = int(sides_dict[side_name])
+            else:
+                logging.warning(f"Side '{side_name}' not found in sides table")
+                result[side_name] = None
+        
+        logging.info(f"Mapped {len(result)} sides: {result}")
+        return result
+        
+    except Exception as e:
+        logging.error(f"Error mapping sides batch: {str(e)}")
+        raise
+
 def get_all_sources(**context) -> Dict[str, int]:
     """
-    Get all sources with their IDs from the sources table.
+    Get all sources with their IDs from the sources dimension.
+    Uses cached DataFrame for efficiency.
     
     Returns:
         Dict[str, int]: Dictionary mapping source names to their IDs
@@ -93,20 +229,11 @@ def get_all_sources(**context) -> Dict[str, int]:
         get_all_sources() -> {'milli': 1, 'taline': 2, 'digikala': 3, ...}
     """
     try:
-        # Connect to gold_dw database
-        gold_dw_hook = PostgresHook(postgres_conn_id='gold_dw')
+        # Load sources dimension (cached)
+        sources_df = _load_sources_dimension(**context)
         
-        # Query to get all sources
-        query = """
-        SELECT id, name 
-        FROM sources 
-        WHERE deleted_at IS NULL 
-        ORDER BY id
-        """
-        
-        results = gold_dw_hook.get_records(query)
-        
-        sources_dict = {row[1]: row[0] for row in results}
+        # Create mapping dictionary
+        sources_dict = dict(zip(sources_df['name'], sources_df['id']))
         logging.info(f"Retrieved {len(sources_dict)} sources: {list(sources_dict.keys())}")
         
         return sources_dict
@@ -117,7 +244,8 @@ def get_all_sources(**context) -> Dict[str, int]:
 
 def get_all_sides(**context) -> Dict[str, int]:
     """
-    Get all sides with their IDs from the sides table.
+    Get all sides with their IDs from the sides dimension.
+    Uses cached DataFrame for efficiency.
     
     Returns:
         Dict[str, int]: Dictionary mapping side names to their IDs
@@ -126,20 +254,11 @@ def get_all_sides(**context) -> Dict[str, int]:
         get_all_sides() -> {'buy': 1, 'sell': 2}
     """
     try:
-        # Connect to gold_dw database
-        gold_dw_hook = PostgresHook(postgres_conn_id='gold_dw')
+        # Load sides dimension (cached)
+        sides_df = _load_sides_dimension(**context)
         
-        # Query to get all sides
-        query = """
-        SELECT id, name 
-        FROM sides 
-        WHERE deleted_at IS NULL 
-        ORDER BY id
-        """
-        
-        results = gold_dw_hook.get_records(query)
-        
-        sides_dict = {row[1]: row[0] for row in results}
+        # Create mapping dictionary
+        sides_dict = dict(zip(sides_df['name'], sides_df['id']))
         logging.info(f"Retrieved {len(sides_dict)} sides: {list(sides_dict.keys())}")
         
         return sides_dict
@@ -151,6 +270,7 @@ def get_all_sides(**context) -> Dict[str, int]:
 def validate_source_and_side(source_name: str, side_name: str, **context) -> Dict[str, Any]:
     """
     Validate both source and side, returning their IDs if valid.
+    Uses optimized in-memory lookups.
     
     Args:
         source_name (str): Name of the source
@@ -199,4 +319,14 @@ def validate_source_and_side(source_name: str, side_name: str, **context) -> Dic
     else:
         logging.warning(f"Validation failed: {errors}")
     
-    return result 
+    return result
+
+def clear_dimension_cache():
+    """
+    Clear the cached dimension DataFrames.
+    Useful for testing or when dimension data has changed.
+    """
+    global _sources_df, _sides_df
+    _sources_df = None
+    _sides_df = None
+    logging.info("Cleared dimension cache") 

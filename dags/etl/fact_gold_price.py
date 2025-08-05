@@ -5,6 +5,11 @@ from airflow.providers.postgres.hooks.postgres import PostgresHook
 import pandas as pd
 import logging
 
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.dw_helpers import map_sources_batch, map_sides_batch
+
 # Default arguments for the DAG
 default_args = {
     'owner': 'data_team',
@@ -18,12 +23,12 @@ default_args = {
 
 # DAG definition
 dag = DAG(
-    'gold_price_etl',
+    'fact_gold_price',
     default_args=default_args,
     description='Extract gold price data from source and load into DW',
     schedule_interval='0 * * * *',  # Every hour at minute 0
     catchup=False,
-    tags=['etl', 'gold_price', 'crypto_bot'],
+    tags=['etl', 'gold_price', 'fact_table'],
 )
 
 def extract_gold_price_data(**context):
@@ -46,7 +51,7 @@ def extract_gold_price_data(**context):
             CASE
                 WHEN currency = 'IRR' THEN ROUND(price / 10)
                 WHEN currency = 'IRT' THEN ROUND(price)
-            END AS price_tmn,
+            END AS price,
             CAST(TO_CHAR(created_at AT TIME ZONE 'Asia/Tehran', 'YYYYMMDD') AS INT) AS date_id,
             CAST(TO_CHAR(created_at AT TIME ZONE 'Asia/Tehran', 'HH24MISS') AS INT) AS time_id
         FROM gold_price
@@ -58,6 +63,34 @@ def extract_gold_price_data(**context):
         
         # Execute query and get data
         df = source_hook.get_pandas_df(query)
+
+        # Get unique source and side names for batch mapping
+        unique_sources = df['source'].unique().tolist()
+        unique_sides = df['side'].unique().tolist()
+        
+        # Batch map sources and sides to their IDs (much more efficient)
+        sources_mapping = map_sources_batch(unique_sources, **context)
+        sides_mapping = map_sides_batch(unique_sides, **context)
+        
+        # Map the IDs using the batch mappings
+        df['source_id'] = df['source'].map(sources_mapping)
+        df['side_id'] = df['side'].map(sides_mapping)
+        
+        # Convert to numeric and handle NaN values properly
+        df['source_id'] = pd.to_numeric(df['source_id'], errors='coerce')
+        df['side_id'] = pd.to_numeric(df['side_id'], errors='coerce')
+        df['price'] = pd.to_numeric(df['price'], errors='coerce')
+        df['date_id'] = pd.to_numeric(df['date_id'], errors='coerce')
+        df['time_id'] = pd.to_numeric(df['time_id'], errors='coerce')
+        
+        # Convert all NaN values to None for database insertion
+        df = df.replace([float('nan'), pd.NA, pd.NaT], None)
+        
+        # Convert to proper types for database
+        df['source_id'] = df['source_id'].astype('Int64')
+        df['side_id'] = df['side_id'].astype('Int64')
+        df['date_id'] = df['date_id'].astype('Int64')
+        df['time_id'] = df['time_id'].astype('Int64')
         
         # Log the number of records extracted
         logging.info(f"Extracted {len(df)} records from source database")
@@ -79,16 +112,16 @@ def create_dw_table(**context):
         # Data warehouse connection
         dw_hook = PostgresHook(
             postgres_conn_id='datawarehouse',
-            schema='datawarehouse'
+            schema='gold_dw'
         )
         
         # Create table SQL
         create_table_sql = """
-        CREATE TABLE IF NOT EXISTS gold_price_raw (
+        CREATE TABLE IF NOT EXISTS fact_gold_price (
             id BIGINT PRIMARY KEY,
-            source VARCHAR(100),
-            side VARCHAR(50),
-            price_tmn DECIMAL(15,2),
+            source_id INTEGER,
+            side_id INTEGER,
+            price DECIMAL(15,2),
             date_id INTEGER,
             time_id INTEGER,
             etl_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -97,7 +130,7 @@ def create_dw_table(**context):
         
         # Execute create table
         dw_hook.run(create_table_sql)
-        logging.info("Created gold_price_raw table in data warehouse")
+        logging.info("Created fact_gold_price table in data warehouse")
         
         return "Table created successfully"
         
@@ -123,30 +156,37 @@ def load_gold_price_data(**context):
         # Data warehouse connection
         dw_hook = PostgresHook(
             postgres_conn_id='datawarehouse',
-            schema='datawarehouse'
+            schema='gold_dw'
         )
         
         # Insert data into the table
         for index, row in df.iterrows():
             insert_sql = """
-            INSERT INTO gold_price_raw (id, source, side, price_tmn, date_id, time_id)
+            INSERT INTO fact_gold_price (id, source_id, side_id, price, date_id, time_id)
             VALUES (%s, %s, %s, %s, %s, %s)
             ON CONFLICT (id) DO UPDATE SET
-                source = EXCLUDED.source,
-                side = EXCLUDED.side,
-                price_tmn = EXCLUDED.price_tmn,
+                source_id = EXCLUDED.source_id,
+                side_id = EXCLUDED.side_id,
+                price = EXCLUDED.price,
                 date_id = EXCLUDED.date_id,
                 time_id = EXCLUDED.time_id,
                 etl_timestamp = CURRENT_TIMESTAMP;
             """
             
+            # Handle NaN values by converting them to None
+            source_id = None if pd.isna(row['source_id']) else int(row['source_id'])
+            side_id = None if pd.isna(row['side_id']) else int(row['side_id'])
+            price = None if pd.isna(row['price']) else float(row['price'])
+            date_id = None if pd.isna(row['date_id']) else int(row['date_id'])
+            time_id = None if pd.isna(row['time_id']) else int(row['time_id'])
+            
             dw_hook.run(insert_sql, parameters=(
-                row['id'],
-                row['source'],
-                row['side'],
-                row['price_tmn'],
-                row['date_id'],
-                row['time_id']
+                int(row['id']),
+                source_id,
+                side_id,
+                price,
+                date_id,
+                time_id
             ))
         
         logging.info(f"Successfully loaded {len(df)} records into data warehouse")
