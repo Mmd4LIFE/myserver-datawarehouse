@@ -104,6 +104,45 @@ def setup_dw_connection(**context):
         logging.error(f"Error creating DW connection: {str(e)}")
         raise
 
+def setup_gold_dw_connection(**context):
+    """
+    Setup connection to gold_dw database
+    """
+    try:
+        session = settings.Session()
+        
+        # Check if connection already exists
+        existing_conn = session.query(Connection).filter(
+            Connection.conn_id == 'gold_dw'
+        ).first()
+        
+        if existing_conn:
+            logging.info("Connection 'gold_dw' already exists")
+            return "Connection already exists"
+        
+        # Create new connection
+        new_conn = Connection(
+            conn_id='gold_dw',
+            conn_type='postgres',
+            host='postgres-dw',  # Docker service name
+            schema='gold_dw',
+            login='dw_user',
+            password='DW_Secure_Pass_2024',
+            port=5432,
+            extra='{"sslmode": "prefer"}'
+        )
+        
+        session.add(new_conn)
+        session.commit()
+        session.close()
+        
+        logging.info("Successfully created 'gold_dw' connection")
+        return "Connection created successfully"
+        
+    except Exception as e:
+        logging.error(f"Error creating gold_dw connection: {str(e)}")
+        raise
+
 # Define tasks
 setup_source_task = PythonOperator(
     task_id='setup_source_connection',
@@ -117,5 +156,11 @@ setup_dw_task = PythonOperator(
     dag=dag,
 )
 
+setup_gold_dw_task = PythonOperator(
+    task_id='setup_gold_dw_connection',
+    python_callable=setup_gold_dw_connection,
+    dag=dag,
+)
+
 # Define task dependencies (can run in parallel)
-setup_source_task >> setup_dw_task 
+setup_source_task >> [setup_dw_task, setup_gold_dw_task] 

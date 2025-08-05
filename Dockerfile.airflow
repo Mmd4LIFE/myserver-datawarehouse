@@ -1,0 +1,22 @@
+FROM apache/airflow:2.7.1
+
+# Set environment variable to allow pip as root (temporary workaround)
+ENV AIRFLOW_UID=50000
+
+# Switch to root to install system dependencies
+USER root
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements file to the location Airflow expects
+COPY requirements.txt /opt/airflow/requirements.txt
+
+# Switch to airflow user and install packages
+USER ${AIRFLOW_UID}
+RUN pip install --no-cache-dir -r /opt/airflow/requirements.txt
+
+# Clean up
+RUN rm /opt/airflow/requirements.txt 

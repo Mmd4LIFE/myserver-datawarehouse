@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres-dw:
     image: postgres:15
@@ -27,7 +25,9 @@ services:
 
 
   airflow-webserver:
-    image: apache/airflow:2.7.1
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
     container_name: airflow-webserver
     user: "${AIRFLOW_UID}:${AIRFLOW_GID}"
     depends_on:
@@ -60,7 +60,9 @@ services:
       - dw-network
 
   airflow-scheduler:
-    image: apache/airflow:2.7.1
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
     container_name: airflow-scheduler
     user: "${AIRFLOW_UID}:${AIRFLOW_GID}"
     depends_on:
@@ -84,7 +86,9 @@ services:
       - dw-network
 
   airflow-worker:
-    image: apache/airflow:2.7.1
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
     container_name: airflow-worker
     user: "${AIRFLOW_UID}:${AIRFLOW_GID}"
     depends_on:
@@ -106,7 +110,9 @@ services:
       - dw-network
 
   airflow-init:
-    image: apache/airflow:2.7.1
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
     container_name: airflow-init
     user: "${AIRFLOW_UID}:${AIRFLOW_GID}"
     depends_on:
