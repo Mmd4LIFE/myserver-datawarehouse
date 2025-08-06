@@ -28,7 +28,7 @@ dag = DAG(
     'fact_gold_price',
     default_args=default_args,
     description='Extract gold price data from source and load into DW',
-    schedule_interval='0 * * * *',  # Every hour at minute 0
+    schedule_interval='35 * * * *',  # Every hour at minute 35
     catchup=False,
     tags=['etl', 'gold_price', 'fact_table'],
 )

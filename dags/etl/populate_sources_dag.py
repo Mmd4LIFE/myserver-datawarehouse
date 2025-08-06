@@ -21,7 +21,7 @@ dag = DAG(
     'populate_sources_table',
     default_args=default_args,
     description='Populate sources table from gold_price data',
-    schedule_interval='0 1 * * *',  # Run daily at 1 AM
+    schedule_interval='31 * * * *',  # Run daily at 1 AM
     catchup=False,
     tags=['etl', 'sources', 'gold_price'],
 )
