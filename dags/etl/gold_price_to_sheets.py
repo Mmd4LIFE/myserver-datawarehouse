@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
@@ -23,7 +23,7 @@ dag = DAG(
     'gold_price_to_sheets',
     default_args=default_args,
     description='Extract gold price data from source and write to Google Sheets',
-    schedule_interval='0 */6 * * *',  # Every 6 hours
+    schedule_interval='40 * * * *', 
     catchup=False,
     tags=['etl', 'gold_price', 'google_sheets'],
 )
@@ -35,17 +35,24 @@ def extract_milli_gold_price_data(**context):
     try:
         # Source database connection
         source_hook = PostgresHook(
-            postgres_conn_id='source_crypto_bot',
-            schema='crypto_bot'
+            postgres_conn_id='datawarehouse',
+            schema='gold_dw'
         )
         
         # SQL query to extract data
         query = """
-        SELECT *,
-            created_at + INTERVAL '3 hours 30 minutes' AS created_at_tehran
-        FROM gold_price
-        WHERE source = 'milli'
-        ORDER BY id;
+            SELECT
+                dd.date_string,
+                dt.minutefullstring24,
+                fgpi.price,
+                fgpi.is_interpolated
+            FROM fact_gold_price_interpolated AS fgpi
+                JOIN dim_date AS dd
+                    USING(date_id)
+                JOIN dim_time AS dt
+                    ON dt.time_id = fgpi.rounded_time_id
+            WHERE source_id = 1
+            ORDER BY dd.date_id, dt.time_id;
         """
         
         # Execute query and get data
@@ -128,7 +135,19 @@ def write_to_google_sheets(**context):
         # Prepare data for Google Sheets
         # Convert DataFrame to list of lists (including headers)
         headers = df.columns.tolist()
-        data_rows = df.values.tolist()
+        
+        # Convert data rows and handle date serialization
+        data_rows = []
+        for _, row in df.iterrows():
+            row_data = []
+            for value in row:
+                if pd.isna(value):
+                    row_data.append(None)
+                elif isinstance(value, (pd.Timestamp, date, datetime)):
+                    row_data.append(value.strftime('%Y-%m-%d %H:%M:%S') if hasattr(value, 'strftime') else str(value))
+                else:
+                    row_data.append(value)
+            data_rows.append(row_data)
         
         # Combine headers and data
         sheet_data = [headers] + data_rows
