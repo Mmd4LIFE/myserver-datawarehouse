@@ -28,12 +28,12 @@ default_args = {
 
 # DAG definition
 dag = DAG(
-    'fact_gold_price',
+    'fact_gold_price_temp',
     default_args=default_args,
-    description='Extract gold price data from source and load into DW',
-    schedule_interval='35 * * * *',  # Every hour at minute 35
+    description='Temporary DAG to fill missing 23:00-23:59 data for Aug 6-8',
+    schedule_interval=None,  # Manual execution only
     catchup=False,
-    tags=['etl', 'gold_price', 'fact_table'],
+    tags=['etl', 'gold_price', 'temp', 'interpolation'],
 )
 
 def extract_gold_price_data(**context):
@@ -239,7 +239,7 @@ def create_interpolated_table(**context):
 
 def interpolate_gold_price_data(**context):
     """
-    Simple interpolation: Copy last hour data and interpolate missing minutes
+    Fill missing 23:00-23:59 data for all source IDs except 1 for specific dates: Aug 6, 7, 8, 2025
     """
     try:
         # Data warehouse connection
@@ -248,131 +248,146 @@ def interpolate_gold_price_data(**context):
             schema='gold_dw'
         )
         
-        # Step 1: Copy last hour data from fact_gold_price
-        copy_sql = """
-        INSERT INTO fact_gold_price_interpolated 
-        (source_id, side_id, price, date_id, time_id, rounded_time_id, is_interpolated)
-        SELECT
-            source_id,
-            side_id,
-            price,
-            date_id,
-            time_id,
-            CASE
-                WHEN time_id % 100 = 0
-                THEN time_id
-                ELSE time_id - (time_id % 100)
-            END AS rounded_time_id,
-            FALSE as is_interpolated
-        FROM fact_gold_price AS fgp
-                JOIN dim_date AS dd
-                    USING(date_id)
-                JOIN dim_time AS dt
-                    USING(time_id)
-        WHERE CONCAT(dd.date_string, ' ', dt.minutefullstring24)::TIMESTAMP BETWEEN DATE_TRUNC('hour', CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tehran') - INTERVAL '1 hour'
-            AND
-            DATE_TRUNC('hour', CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tehran');
-        """
+        # Get all source IDs except 1
+        source_ids_result = dw_hook.get_pandas_df(
+            "SELECT DISTINCT source_id FROM fact_gold_price_interpolated WHERE source_id != 1 ORDER BY source_id"
+        )
+        source_ids = source_ids_result['source_id'].tolist()
+        logging.info(f"Processing source IDs: {source_ids}")
         
-        dw_hook.run(copy_sql)
-        logging.info("Copied last hour data from fact_gold_price")
+        # Target dates for filling missing 23:00-23:59 data
+        target_dates = ['2025-08-06', '2025-08-07', '2025-08-08']
+        total_inserted = 0
         
-        # Step 2: Get all minute-level time IDs for the hour
-        start_hour = (datetime.now(timezone('Asia/Tehran')) - timedelta(hours=1)).hour
-        time_query = f"""
-        SELECT time_id 
-        FROM dim_time 
-        WHERE second = 0
-            AND hour24 = {start_hour}
-        ORDER BY time_id;
-        """
-        
-        time_df = dw_hook.get_pandas_df(time_query)
-        all_minutes = time_df['time_id'].tolist()
-        
-        # Step 3: Get existing data for the current hour being processed
-        data_query = """
-        SELECT fgpi.source_id, fgpi.side_id, fgpi.price, fgpi.date_id, fgpi.rounded_time_id, fgpi.is_interpolated
-        FROM fact_gold_price_interpolated fgpi
-        JOIN dim_date dd USING(date_id)
-        JOIN dim_time dt ON dt.time_id = fgpi.rounded_time_id
-        WHERE CONCAT(dd.date_string, ' ', dt.minutefullstring24)::TIMESTAMP BETWEEN DATE_TRUNC('hour', CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tehran') - INTERVAL '1 hour'
-            AND DATE_TRUNC('hour', CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Tehran')
-        ORDER BY fgpi.source_id, fgpi.side_id, fgpi.date_id, fgpi.rounded_time_id;
-        """
-        
-        data_df = dw_hook.get_pandas_df(data_query)
-        
-        # Step 4: Process each source-side-date combination
-        results = []
-        
-        for (source_id, side_id, date_id), group in data_df.groupby(['source_id', 'side_id', 'date_id'], dropna=False):
-            # Get existing minutes for this combination
-            existing_minutes = group['rounded_time_id'].tolist()
+        for source_id in source_ids:
+            logging.info(f"Processing source_id {source_id}")
             
-            # Find missing minutes
-            missing_minutes = [m for m in all_minutes if m not in existing_minutes]
-            
-            if missing_minutes:
-                # Get actual values for this combination
-                actual_data = group[group['is_interpolated'] == False][['rounded_time_id', 'price']].sort_values('rounded_time_id')
+            for date_str in target_dates:
+                logging.info(f"Processing {date_str} for source_id {source_id} for hour 23:00-23:59")
                 
-                if len(actual_data) >= 2:
-                    # Create interpolation function using actual values
-                    actual_times = actual_data['rounded_time_id'].values
-                    actual_prices = actual_data['price'].values
-                    
-                    # For each missing minute, find the two nearest actual values and interpolate linearly
-                    for missing_minute in missing_minutes:
-                        # Find the two nearest actual values
-                        distances = np.abs(actual_times - missing_minute)
-                        nearest_indices = np.argsort(distances)[:2]
-                        
-                        if len(nearest_indices) >= 2:
-                            time1, time2 = actual_times[nearest_indices[0]], actual_times[nearest_indices[1]]
-                            price1, price2 = actual_prices[nearest_indices[0]], actual_prices[nearest_indices[1]]
-                            
-                            # Linear interpolation: y = y1 + (x - x1) * (y2 - y1) / (x2 - x1)
-                            if time2 != time1:
-                                interpolated_price = price1 + (missing_minute - time1) * (price2 - price1) / (time2 - time1)
-                            else:
-                                interpolated_price = price1  # Same time, use the price
-                            
-                            # Add to results
-                            results.append({
-                                'source_id': source_id,
-                                'side_id': side_id,
-                                'date_id': date_id,
-                                'time_id': missing_minute,
-                                'rounded_time_id': missing_minute,
-                                'price': interpolated_price,
-                                'is_interpolated': True
-                            })
-        
-        # Step 5: Insert interpolated records
-        if results:
-            interpolated_df = pd.DataFrame(results)
-            
-            for _, row in interpolated_df.iterrows():
-                side_id_value = "NULL" if pd.isna(row['side_id']) else str(int(row['side_id']))
-                insert_query = f"""
-                INSERT INTO fact_gold_price_interpolated 
-                (source_id, side_id, price, date_id, time_id, rounded_time_id, is_interpolated)
-                VALUES ({row['source_id']}, {side_id_value}, {row['price']}, {row['date_id']}, {row['time_id']}, {row['rounded_time_id']}, true)
+                # Get date_id for the target date
+                date_result = dw_hook.get_first(
+                    "SELECT date_id FROM dim_date WHERE date_string = %s", 
+                    parameters=[date_str]
+                )
+                if not date_result:
+                    logging.warning(f"Date {date_str} not found in dim_date table")
+                    continue
+                date_id = date_result[0]
+                
+                # Calculate next day for hour 0 data
+                next_day = (datetime.strptime(date_str, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
+                
+                # Get the last price from hour 22 of current date
+                last_22_query = """
+                SELECT fgpi.price, fgpi.side_id, dt.time_id
+                FROM fact_gold_price_interpolated fgpi
+                JOIN dim_date dd ON fgpi.date_id = dd.date_id
+                JOIN dim_time dt ON fgpi.rounded_time_id = dt.time_id
+                WHERE fgpi.source_id = %s
+                AND dd.date_string = %s
+                AND dt.hour24 = 22
+                AND fgpi.is_interpolated = false
+                ORDER BY dt.time_id DESC
+                LIMIT 1;
                 """
-                dw_hook.run(insert_query)
-            
-            logging.info(f"Inserted {len(interpolated_df)} interpolated records")
-        else:
-            logging.info("No missing values to interpolate")
+                
+                last_22_result = dw_hook.get_first(last_22_query, parameters=[source_id, date_str])
+                
+                if not last_22_result:
+                    logging.warning(f"No hour 22 data found for source_id {source_id} on {date_str}")
+                    continue
+                    
+                last_22_price = float(last_22_result[0])
+                last_22_side_id = last_22_result[1]
+                last_22_time = last_22_result[2]
+                
+                # Get the first price from hour 0 of next date
+                first_0_query = """
+                SELECT fgpi.price, fgpi.side_id, dt.time_id
+                FROM fact_gold_price_interpolated fgpi
+                JOIN dim_date dd ON fgpi.date_id = dd.date_id
+                JOIN dim_time dt ON fgpi.rounded_time_id = dt.time_id
+                WHERE fgpi.source_id = %s
+                AND dd.date_string = %s
+                AND dt.hour24 = 0
+                AND fgpi.is_interpolated = false
+                ORDER BY dt.time_id ASC
+                LIMIT 1;
+                """
+                
+                first_0_result = dw_hook.get_first(first_0_query, parameters=[source_id, next_day])
+                
+                if not first_0_result:
+                    logging.warning(f"No hour 0 data found for source_id {source_id} on next day after {date_str}")
+                    continue
+                    
+                first_0_price = float(first_0_result[0])
+                first_0_side_id = first_0_result[1]
+                first_0_time = first_0_result[2]
+                
+                logging.info(f"Source {source_id}: Interpolating between: {last_22_time}({last_22_price}) -> {first_0_time}({first_0_price})")
+                
+                # Use the side_id from either reference point (prefer non-null)
+                side_id_to_use = last_22_side_id if last_22_side_id is not None else first_0_side_id
+                
+                # Get all minute time_ids for hour 23
+                minutes_23_df = dw_hook.get_pandas_df(
+                    "SELECT time_id FROM dim_time WHERE second = 0 AND hour24 = 23 ORDER BY time_id"
+                )
+                minutes_23 = minutes_23_df['time_id'].tolist()
+                
+                # Calculate time range (accounting for day boundary)
+                # Add 24 hours to first_0_time to make progression work
+                end_time = first_0_time + 240000
+                time_range = end_time - last_22_time
+                price_range = first_0_price - last_22_price
+                
+                logging.info(f"Source {source_id}: Time range: {time_range}, Price range: {price_range}")
+                
+                # Insert interpolated records for all 60 minutes of hour 23
+                inserted_count = 0
+                for minute_time in minutes_23:
+                    time_offset = minute_time - last_22_time
+                    interpolated_price = last_22_price + (time_offset / time_range) * price_range
+                    
+                    # Insert the record
+                    try:
+                        if side_id_to_use is not None:
+                            dw_hook.run("""
+                                INSERT INTO fact_gold_price_interpolated 
+                                (source_id, side_id, price, date_id, time_id, rounded_time_id, is_interpolated)
+                                VALUES (%s, %s, %s, %s, %s, %s, true)
+                            """, parameters=[
+                                source_id,
+                                int(side_id_to_use), 
+                                round(interpolated_price, 2), 
+                                date_id, 
+                                minute_time, 
+                                minute_time
+                            ])
+                        else:
+                            # Handle NULL side_id case
+                            dw_hook.run("""
+                                INSERT INTO fact_gold_price_interpolated 
+                                (source_id, side_id, price, date_id, time_id, rounded_time_id, is_interpolated)
+                                VALUES (%s, NULL, %s, %s, %s, %s, true)
+                            """, parameters=[
+                                source_id,
+                                round(interpolated_price, 2), 
+                                date_id, 
+                                minute_time, 
+                                minute_time
+                            ])
+                        inserted_count += 1
+                    except Exception as e:
+                        logging.error(f"Error inserting source {source_id} {minute_time}: {e}")
+                
+                logging.info(f"Inserted {inserted_count} records for source_id {source_id} on {date_str}")
+                total_inserted += inserted_count
         
-        # Get final count
-        final_count_sql = "SELECT COUNT(*) FROM fact_gold_price_interpolated;"
-        final_result = dw_hook.get_first(final_count_sql)
-        final_count = final_result[0] if final_result else 0
-        
-        logging.info(f"Total records: {final_count}")
-        return f"Successfully processed {final_count} records"
+        logging.info(f"Total interpolated records inserted: {total_inserted}")
+        return f"Successfully processed {total_inserted} records"
         
     except Exception as e:
         logging.error(f"Error interpolating data: {str(e)}")
@@ -467,31 +482,7 @@ def validate_interpolated_data(**context):
         logging.error(f"Error validating interpolated data: {str(e)}")
         raise
 
-# Define tasks
-extract_task = PythonOperator(
-    task_id='extract_gold_price_data',
-    python_callable=extract_gold_price_data,
-    dag=dag,
-)
-
-create_table_task = PythonOperator(
-    task_id='create_dw_table',
-    python_callable=create_dw_table,
-    dag=dag,
-)
-
-load_task = PythonOperator(
-    task_id='load_gold_price_data',
-    python_callable=load_gold_price_data,
-    dag=dag,
-)
-
-create_interpolated_table_task = PythonOperator(
-    task_id='create_interpolated_table',
-    python_callable=create_interpolated_table,
-    dag=dag,
-)
-
+# Define only the required tasks for interpolation testing
 interpolate_task = PythonOperator(
     task_id='interpolate_gold_price_data',
     python_callable=interpolate_gold_price_data,
@@ -504,23 +495,5 @@ validate_task = PythonOperator(
     dag=dag,
 )
 
-# Notification tasks
-notify_success_task = PythonOperator(
-    task_id='notify_success_telegram',
-    python_callable=task_notify_success,
-    trigger_rule=TriggerRule.ALL_SUCCESS,
-    retries=0,
-    dag=dag,
-)
-
-notify_failure_task = PythonOperator(
-    task_id='notify_failure_telegram',
-    python_callable=task_notify_failure,
-    trigger_rule=TriggerRule.ONE_FAILED,
-    retries=0,
-    dag=dag,
-)
-
 # Define task dependencies
-create_table_task >> extract_task >> load_task >> create_interpolated_table_task >> interpolate_task >> validate_task >> notify_success_task
-create_table_task >> notify_failure_task
+interpolate_task >> validate_task
