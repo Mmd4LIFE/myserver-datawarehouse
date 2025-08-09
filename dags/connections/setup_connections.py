@@ -3,6 +3,8 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.models import Connection
 from airflow import settings
+from airflow.utils.trigger_rule import TriggerRule
+from utils.telegram_alert import task_notify_success, task_notify_failure
 import logging
 
 # Default arguments for the DAG
@@ -162,5 +164,23 @@ setup_gold_dw_task = PythonOperator(
     dag=dag,
 )
 
+# Notification tasks
+notify_success_task = PythonOperator(
+    task_id='notify_success_telegram',
+    python_callable=task_notify_success,
+    trigger_rule=TriggerRule.ALL_SUCCESS,
+    retries=0,
+    dag=dag,
+)
+
+notify_failure_task = PythonOperator(
+    task_id='notify_failure_telegram',
+    python_callable=task_notify_failure,
+    trigger_rule=TriggerRule.ONE_FAILED,
+    retries=0,
+    dag=dag,
+)
+
 # Define task dependencies (can run in parallel)
-setup_source_task >> [setup_dw_task, setup_gold_dw_task] 
+setup_source_task >> [setup_dw_task, setup_gold_dw_task] >> notify_success_task
+setup_source_task >> notify_failure_task

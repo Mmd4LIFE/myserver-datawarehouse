@@ -2,6 +2,8 @@ from datetime import datetime, timedelta, date
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
+from airflow.utils.trigger_rule import TriggerRule
+from utils.telegram_alert import task_notify_success, task_notify_failure
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
@@ -175,5 +177,23 @@ write_sheets_task = PythonOperator(
     dag=dag,
 )
 
+# Notification tasks
+notify_success_task = PythonOperator(
+    task_id='notify_success_telegram',
+    python_callable=task_notify_success,
+    trigger_rule=TriggerRule.ALL_SUCCESS,
+    retries=0,
+    dag=dag,
+)
+
+notify_failure_task = PythonOperator(
+    task_id='notify_failure_telegram',
+    python_callable=task_notify_failure,
+    trigger_rule=TriggerRule.ONE_FAILED,
+    retries=0,
+    dag=dag,
+)
+
 # Define task dependencies
-extract_task >> write_sheets_task 
+extract_task >> write_sheets_task >> notify_success_task
+extract_task >> notify_failure_task
