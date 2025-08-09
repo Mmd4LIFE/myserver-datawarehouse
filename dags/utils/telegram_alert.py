@@ -59,13 +59,12 @@ def _format_dag_status_message(status: str, context: Dict[str, Any]) -> str:
         # Best-effort; ignore formatting issues
         failed_task_ids = []
 
-    base = f"DAG: {dag_id}\nRun: {run_id}\nAt: {ts}"
+    base = f"{dag_id}"
 
     if status.lower() == "success":
-        return f"✅ DAG succeeded\n{base}"
+        return f"✅ {base}"
     else:
-        extra = f"\nFailed tasks: {', '.join(failed_task_ids)}" if failed_task_ids else ""
-        return f"❌ DAG failed\n{base}{extra}"
+        return f"❌ {base}"
 
 
 def task_notify_success(**context: Any) -> None:
