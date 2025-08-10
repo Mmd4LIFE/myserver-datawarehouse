@@ -26,15 +26,15 @@ default_args = {
     'retry_delay': timedelta(minutes=5),
 }
 
-# DAG definition
-dag = DAG(
-    'fact_gold_price_temp',
-    default_args=default_args,
-    description='Temporary DAG to fill missing 23:00-23:59 data for Aug 6-8',
-    schedule_interval=None,  # Manual execution only
-    catchup=False,
-    tags=['etl', 'gold_price', 'temp', 'interpolation'],
-)
+# DAG definition - ARCHIVED/DISABLED
+# dag = DAG(
+#     'fact_gold_price_temp',
+#     default_args=default_args,
+#     description='Temporary DAG to fill missing 23:00-23:59 data for Aug 6-8',
+#     schedule_interval=None,  # Manual execution only
+#     catchup=False,
+#     tags=['etl', 'gold_price', 'temp', 'interpolation'],
+# )
 
 def extract_gold_price_data(**context):
     """
@@ -482,18 +482,18 @@ def validate_interpolated_data(**context):
         logging.error(f"Error validating interpolated data: {str(e)}")
         raise
 
-# Define only the required tasks for interpolation testing
-interpolate_task = PythonOperator(
-    task_id='interpolate_gold_price_data',
-    python_callable=interpolate_gold_price_data,
-    dag=dag,
-)
+# Define only the required tasks for interpolation testing - ARCHIVED/DISABLED
+# interpolate_task = PythonOperator(
+#     task_id='interpolate_gold_price_data',
+#     python_callable=interpolate_gold_price_data,
+#     dag=dag,
+# )
 
-validate_task = PythonOperator(
-    task_id='validate_interpolated_data',
-    python_callable=validate_interpolated_data,
-    dag=dag,
-)
+# validate_task = PythonOperator(
+#     task_id='validate_interpolated_data',
+#     python_callable=validate_interpolated_data,
+#     dag=dag,
+# )
 
 # Define task dependencies
-interpolate_task >> validate_task
+# interpolate_task >> validate_task

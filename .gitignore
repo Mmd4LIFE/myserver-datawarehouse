@@ -61,5 +61,11 @@ data/
 raw_data/
 processed_data/ 
 
-# Service account
-config/service-account.json
+# Config files
+config/
+
+# Development Notes
+notes.txt
+
+# Development docs 
+docs/
