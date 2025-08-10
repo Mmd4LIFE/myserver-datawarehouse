@@ -6,6 +6,10 @@ from airflow import settings
 from airflow.utils.trigger_rule import TriggerRule
 from utils.telegram_alert import task_notify_success, task_notify_failure
 import logging
+import os
+
+from dotenv import load_dotenv
+load_dotenv()
 
 # Default arguments for the DAG
 default_args = {
@@ -48,11 +52,11 @@ def setup_source_connection(**context):
         new_conn = Connection(
             conn_id='source_crypto_bot',
             conn_type='postgres',
-            host='localhost',
-            schema='crypto_bot',
-            login='bot_user',
-            password='bot_password_2024',
-            port=5434,
+            host=os.getenv('SOURCE_CRYPTO_BOT_POSTGRES_HOST'),
+            schema=os.getenv('SOURCE_CRYPTO_BOT_POSTGRES_SCHEMA'),
+            login=os.getenv('SOURCE_CRYPTO_BOT_POSTGRES_LOGIN'),
+            password=os.getenv('SOURCE_CRYPTO_BOT_POSTGRES_PASSWORD'),
+            port=int(os.getenv('SOURCE_CRYPTO_BOT_POSTGRES_PORT')),
             extra='{"sslmode": "prefer"}'
         )
         
@@ -87,10 +91,10 @@ def setup_dw_connection(**context):
         new_conn = Connection(
             conn_id='datawarehouse',
             conn_type='postgres',
-            host='postgres-dw',  # Docker service name
+            host=os.getenv('POSTGRES_HOST'),
             schema='datawarehouse',
-            login='dw_user',
-            password='DW_Secure_Pass_2024',
+            login=os.getenv('POSTGRES_USER'),
+            password=os.getenv('POSTGRES_PASSWORD'),
             port=5432,
             extra='{"sslmode": "prefer"}'
         )
@@ -126,10 +130,10 @@ def setup_gold_dw_connection(**context):
         new_conn = Connection(
             conn_id='gold_dw',
             conn_type='postgres',
-            host='postgres-dw',  # Docker service name
+            host=os.getenv('POSTGRES_HOST'),
             schema='gold_dw',
-            login='dw_user',
-            password='DW_Secure_Pass_2024',
+            login=os.getenv('POSTGRES_USER'),
+            password=os.getenv('POSTGRES_PASSWORD'),
             port=5432,
             extra='{"sslmode": "prefer"}'
         )
