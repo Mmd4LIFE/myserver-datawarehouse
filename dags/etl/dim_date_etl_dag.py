@@ -166,7 +166,6 @@ notify_failure_task = PythonOperator(
     dag=dag,
 )
 
-
 # Set task dependencies
 update_calculated_columns >> verify_data >> notify_success_task
 update_calculated_columns >> notify_failure_task
