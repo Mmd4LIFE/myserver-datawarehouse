@@ -115,14 +115,14 @@ def get_cheapest_and_expensive_sources(**context):
         logging.error(f"Error extracting data: {str(e)}")
         raise
 
-def create_clock_background(size=(800, 800)):
+def create_clock_background(size=(2400, 2400)):
     """
     Create a clock background image, with 12 at the top and all numbers in correct clock positions.
     """
     fig, ax = plt.subplots(figsize=(size[0]/100, size[1]/100), dpi=100)
     
-    # Create circle for clock face
-    circle = plt.Circle((0.5, 0.5), 0.45, color='white', alpha=0.8, linewidth=2, edgecolor='black')
+    # Create circle for clock face - MUCH BIGGER to match pie!
+    circle = plt.Circle((0.5, 0.5), 0.75, color='white', alpha=0.8, linewidth=12, edgecolor='black')
     ax.add_patch(circle)
     
     # No rotation offset needed: standard clock math is angle = hour * 30 - 90
@@ -135,30 +135,30 @@ def create_clock_background(size=(800, 800)):
         # Mirror the positioning: start at 90 degrees (top) and go counterclockwise in math coordinates
         # but clockwise visually (since y-axis is flipped in display)
         angle = 90 - hour * 30  # Start at 90 degrees and subtract for clockwise movement
-        x_outer = 0.5 + 0.4 * np.cos(np.radians(angle))
-        y_outer = 0.5 + 0.4 * np.sin(np.radians(angle))
-        x_inner = 0.5 + 0.35 * np.cos(np.radians(angle))
-        y_inner = 0.5 + 0.35 * np.sin(np.radians(angle))
+        x_outer = 0.5 + 0.74 * np.cos(np.radians(angle))
+        y_outer = 0.5 + 0.74 * np.sin(np.radians(angle))
+        x_inner = 0.5 + 0.65 * np.cos(np.radians(angle))
+        y_inner = 0.5 + 0.65 * np.sin(np.radians(angle))
         
-        ax.plot([x_inner, x_outer], [y_inner, y_outer], 'k-', linewidth=2)
+        ax.plot([x_inner, x_outer], [y_inner, y_outer], 'k-', linewidth=12)
         
-        # Add hour numbers in correct positions
-        x_text = 0.5 + 0.32 * np.cos(np.radians(angle))
-        y_text = 0.5 + 0.32 * np.sin(np.radians(angle))
+        # Add hour numbers in correct positions - BIGGER!
+        x_text = 0.5 + 0.58 * np.cos(np.radians(angle))
+        y_text = 0.5 + 0.58 * np.sin(np.radians(angle))
         hour_label = 12 if hour == 0 else hour
         ax.text(x_text, y_text, str(hour_label), ha='center', va='center', 
-                fontsize=12, fontweight='bold')
+                fontsize=48, fontweight='bold', fontfamily='serif')
     
     # Add minute markers
     for minute in range(60):
         if minute % 5 != 0:  # Skip hour positions
             angle = 90 - minute * 6  # Fix minute marker positioning to match hours
-            x_outer = 0.5 + 0.4 * np.cos(np.radians(angle))
-            y_outer = 0.5 + 0.4 * np.sin(np.radians(angle))
-            x_inner = 0.5 + 0.38 * np.cos(np.radians(angle))
-            y_inner = 0.5 + 0.38 * np.sin(np.radians(angle))
+            x_outer = 0.5 + 0.74 * np.cos(np.radians(angle))
+            y_outer = 0.5 + 0.74 * np.sin(np.radians(angle))
+            x_inner = 0.5 + 0.70 * np.cos(np.radians(angle))
+            y_inner = 0.5 + 0.70 * np.sin(np.radians(angle))
             
-            ax.plot([x_inner, x_outer], [y_inner, y_outer], 'k-', linewidth=0.5)
+            ax.plot([x_inner, x_outer], [y_inner, y_outer], 'k-', linewidth=6)
     
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
@@ -171,6 +171,12 @@ def plot_chart(**context):
     Create pie charts on clock backgrounds for cheapest and expensive sources
     """
     try:
+        # Set beautiful font for all text elements
+        plt.rcParams.update({
+            'font.family': 'serif',
+            'font.serif': ['Times New Roman', 'DejaVu Serif', 'serif'],
+            'font.weight': 'normal'
+        })
         # Get data from XCom
         cheap_data = context['task_instance'].xcom_pull(task_ids='get_data_task', key='cheap_df')
         expensive_data = context['task_instance'].xcom_pull(task_ids='get_data_task', key='expensive_df')
@@ -203,26 +209,26 @@ def plot_chart(**context):
             colors = cheap_df['color'].fillna('#888888').values  # Default gray if no color
             labels = [f"{row['source']} ({row['duration']})" for _, row in cheap_df.iterrows()]
             
-            # Create pie chart overlaid on clock (no labels on chart)
+            # Create pie chart overlaid on clock (no labels on chart) - MUCH BIGGER!
             wedges, texts = ax_cheap.pie(
                 sizes, 
                 colors=colors,
                 startangle=90,
                 center=(0.5, 0.5),
-                radius=0.25
+                radius=0.75
             )
             
-            # Add legend outside the clock
+            # Add legend outside the clock - BIGGER!
             ax_cheap.legend(wedges, labels, title="Cheapest Sources", 
                            loc="center left", bbox_to_anchor=(1, 0, 0.5, 1),
-                           fontsize=9)
+                           fontsize=36, title_fontsize=42)
             
-            plt.title('Cheapest Sources Distribution (Clock View)', 
-                     fontsize=16, fontweight='bold', pad=20)
+            plt.title('Cheapest Sources Distribution', 
+                     fontsize=56, fontweight='bold', pad=80, fontfamily='serif')
             
             # Save cheapest chart
             cheap_filename = os.path.join(output_dir, f'cheapest_sources_clock_{current_datetime}.png')
-            plt.savefig(cheap_filename, dpi=300, bbox_inches='tight', 
+            plt.savefig(cheap_filename, dpi=150, bbox_inches='tight', 
                        facecolor='white', edgecolor='none')
             plt.close()
             logging.info(f"Cheapest sources chart saved to: {cheap_filename}")
@@ -236,26 +242,26 @@ def plot_chart(**context):
             colors = expensive_df['color'].fillna('#888888').values  # Default gray if no color
             labels = [f"{row['source']} ({row['duration']})" for _, row in expensive_df.iterrows()]
             
-            # Create pie chart overlaid on clock (no labels on chart)
+            # Create pie chart overlaid on clock (no labels on chart) - MUCH BIGGER!
             wedges, texts = ax_expensive.pie(
                 sizes, 
                 colors=colors,
                 startangle=90,
                 center=(0.5, 0.5),
-                radius=0.25
+                radius=0.75
             )
             
-            # Add legend outside the clock
+            # Add legend outside the clock - BIGGER!
             ax_expensive.legend(wedges, labels, title="Most Expensive Sources", 
                                loc="center left", bbox_to_anchor=(1, 0, 0.5, 1),
-                               fontsize=9)
+                               fontsize=36, title_fontsize=42)
             
-            plt.title('Most Expensive Sources Distribution (Clock View)', 
-                     fontsize=16, fontweight='bold', pad=20)
+            plt.title('Most Expensive Sources Distribution', 
+                     fontsize=56, fontweight='bold', pad=80, fontfamily='serif')
             
             # Save expensive chart
             expensive_filename = os.path.join(output_dir, f'expensive_sources_clock_{current_datetime}.png')
-            plt.savefig(expensive_filename, dpi=300, bbox_inches='tight', 
+            plt.savefig(expensive_filename, dpi=150, bbox_inches='tight', 
                        facecolor='white', edgecolor='none')
             plt.close()
             logging.info(f"Expensive sources chart saved to: {expensive_filename}")
