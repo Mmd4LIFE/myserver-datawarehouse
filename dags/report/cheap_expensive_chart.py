@@ -32,7 +32,7 @@ dag = DAG(
     'cheap_expensive_chart',
     default_args=default_args,
     description='Create a chart of cheapest and expensive sources',
-    schedule_interval='30 14 * * *', 
+    schedule_interval='45 6 * * *', 
     catchup=False,
     tags=['report'],
 )

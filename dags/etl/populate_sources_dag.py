@@ -236,8 +236,7 @@ notify_success_task = PythonOperator(
     task_id='notify_success_telegram',
     python_callable=task_notify_success_legacy,
     trigger_rule=TriggerRule.ALL_SUCCESS,
-    retries=2,  # Allow retries for telegram
-    retry_delay=timedelta(minutes=1),
+    retries=0,
     dag=dag,
 )
 
@@ -245,8 +244,7 @@ notify_failure_task = PythonOperator(
     task_id='notify_failure_telegram',
     python_callable=task_notify_failure_legacy,
     trigger_rule=TriggerRule.ONE_FAILED,
-    retries=2,  # Allow retries for telegram
-    retry_delay=timedelta(minutes=1),
+    retries=0,
     dag=dag,
 )
 
