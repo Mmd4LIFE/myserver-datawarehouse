@@ -3,7 +3,7 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.utils.trigger_rule import TriggerRule
-from utils.telegram_alert import task_notify_success_legacy, task_notify_failure_legacy
+from utils.telegram_alert import task_notify_success_legacy, task_notify_failure_legacy, send_telegram_photos
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
@@ -388,6 +388,42 @@ def plot_chart(**context):
         logging.error(f"Error creating charts: {str(e)}")
         raise
 
+def send_charts_to_telegram(**context):
+    """
+    Send the generated chart images to Telegram
+    """
+    try:
+        # Define chart file paths
+        output_dir = '/tmp/chart_outputs'
+        chart_files = [
+            os.path.join(output_dir, 'cheapest_sources_clock.png'),
+            os.path.join(output_dir, 'expensive_sources_clock.png'),
+            os.path.join(output_dir, 'sources_comparison_clock.png')
+        ]
+        
+        # Check which files exist
+        existing_files = [f for f in chart_files if os.path.exists(f)]
+        
+        if not existing_files:
+            logging.warning("No chart files found to send to Telegram")
+            return "No charts found to send"
+        
+        # Get execution date for caption
+        yesterday_date = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+        
+        # Create caption with summary
+        caption = f"""📊 Gold Price Source Analysis - {yesterday_date}"""
+        
+        # Send photos to Telegram
+        logging.info(f"Sending {len(existing_files)} chart images to Telegram...")
+        send_telegram_photos(existing_files, caption)
+        
+        return f"Successfully sent {len(existing_files)} chart images to Telegram"
+        
+    except Exception as e:
+        logging.error(f"Error sending charts to Telegram: {str(e)}")
+        raise
+
 # Define tasks
 get_data_task = PythonOperator(
     task_id='get_data_task',
@@ -405,5 +441,13 @@ plot_task = PythonOperator(
     dag=dag,
 )
 
+send_telegram_task = PythonOperator(
+    task_id='send_charts_to_telegram',
+    python_callable=send_charts_to_telegram,
+    on_success_callback=task_notify_success_legacy,
+    on_failure_callback=task_notify_failure_legacy,
+    dag=dag,
+)
+
 # Set task dependencies
-get_data_task >> plot_task
+get_data_task >> plot_task >> send_telegram_task
