@@ -5,6 +5,7 @@ from airflow.models import Connection
 from airflow import settings
 from airflow.utils.trigger_rule import TriggerRule
 from utils.telegram_alert import task_notify_success, task_notify_failure
+from utils.telegram_alert import task_notify_success_legacy, task_notify_failure_legacy
 import logging
 import os
 
@@ -171,7 +172,7 @@ setup_gold_dw_task = PythonOperator(
 # Notification tasks
 notify_success_task = PythonOperator(
     task_id='notify_success_telegram',
-    python_callable=task_notify_success,
+    python_callable=task_notify_success_legacy,
     trigger_rule=TriggerRule.ALL_SUCCESS,
     retries=0,
     dag=dag,
@@ -179,7 +180,7 @@ notify_success_task = PythonOperator(
 
 notify_failure_task = PythonOperator(
     task_id='notify_failure_telegram',
-    python_callable=task_notify_failure,
+    python_callable=task_notify_failure_legacy,
     trigger_rule=TriggerRule.ONE_FAILED,
     retries=0,
     dag=dag,

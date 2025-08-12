@@ -33,13 +33,38 @@ def _get_token_and_chat_id() -> (str, str):
 
 
 def send_telegram_message(message: str) -> None:
+    """Send a telegram message with robust error handling"""
     token, chat_id = _get_token_and_chat_id()
     if not token or not chat_id:
         print("TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set (env or Airflow Variables); skipping Telegram notification.")
         return
 
-    bot = telegram.Bot(token=token)
-    bot.send_message(chat_id=chat_id, text=message)
+    try:
+        # Create bot
+        bot = telegram.Bot(token=token)
+        
+        # Send message with simple retry logic
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                bot.send_message(chat_id=chat_id, text=message)
+                print(f"Telegram notification sent successfully: {message}")
+                return
+            except telegram.error.TimedOut:
+                if attempt < max_retries - 1:
+                    print(f"Telegram timeout on attempt {attempt + 1}, retrying...")
+                    import time
+                    time.sleep(2)  # Wait 2 seconds before retry
+                    continue
+                else:
+                    print(f"Telegram notification failed after {max_retries} attempts due to timeout")
+                    return
+            except Exception as e:
+                print(f"Telegram notification failed: {str(e)}")
+                return
+    except Exception as e:
+        print(f"Failed to initialize Telegram bot: {str(e)}")
+        return
 
 
 def _format_dag_status_message(status: str, context: Dict[str, Any]) -> str:
@@ -62,16 +87,36 @@ def _format_dag_status_message(status: str, context: Dict[str, Any]) -> str:
     base = f"{dag_id}"
 
     if status.lower() == "success":
-        return f"✅ {base}"
+        return f"✅ {base} - Completed successfully"
     else:
-        return f"❌ {base}"
+        failed_tasks_str = f" (Failed tasks: {', '.join(failed_task_ids)})" if failed_task_ids else ""
+        return f"❌ {base} - Failed{failed_tasks_str}"
 
 
-def task_notify_success(**context: Any) -> None:
-    message = _format_dag_status_message("success", context)
-    send_telegram_message(message)
+def task_notify_success(context: Dict[str, Any]) -> None:
+    """Telegram success notification with proper context handling"""
+    try:
+        message = _format_dag_status_message("success", context)
+        send_telegram_message(message)
+    except Exception as e:
+        print(f"Error in task_notify_success: {str(e)}")
 
 
-def task_notify_failure(**context: Any) -> None:
-    message = _format_dag_status_message("failure", context)
-    send_telegram_message(message)
+def task_notify_failure(context: Dict[str, Any]) -> None:
+    """Telegram failure notification with proper context handling"""
+    try:
+        message = _format_dag_status_message("failure", context)
+        send_telegram_message(message)
+    except Exception as e:
+        print(f"Error in task_notify_failure: {str(e)}")
+
+
+# Legacy functions for backward compatibility
+def task_notify_success_legacy(**context: Any) -> None:
+    """Legacy success notification - deprecated, use task_notify_success instead"""
+    task_notify_success(context)
+
+
+def task_notify_failure_legacy(**context: Any) -> None:
+    """Legacy failure notification - deprecated, use task_notify_failure instead"""
+    task_notify_failure(context)

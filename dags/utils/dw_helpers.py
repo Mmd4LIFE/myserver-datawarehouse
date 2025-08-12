@@ -13,7 +13,7 @@ def _load_sources_dimension(**context) -> pd.DataFrame:
     This function caches the data to avoid repeated database queries.
     
     Returns:
-        pd.DataFrame: DataFrame with columns ['id', 'name']
+        pd.DataFrame: DataFrame with columns ['id', 'name', 'color']
     """
     global _sources_df
     
@@ -22,9 +22,9 @@ def _load_sources_dimension(**context) -> pd.DataFrame:
             # Connect to gold_dw database
             gold_dw_hook = PostgresHook(postgres_conn_id='datawarehouse')
             
-            # Query to get all sources
+            # Query to get all sources with colors
             query = """
-            SELECT id, name 
+            SELECT id, name, color 
             FROM sources 
             WHERE deleted_at IS NULL 
             ORDER BY id

@@ -8,4 +8,8 @@ apache-airflow-providers-postgres==5.7.1
 apache-airflow-providers-google==10.1.0
 openpyxl==3.1.2
 scipy==1.10.1
-python-telegram-bot==13.15 
+python-telegram-bot==13.15
+matplotlib==3.7.2
+seaborn==0.12.2
+pillow==10.0.0
+numpy==1.24.3 
