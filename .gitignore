@@ -72,3 +72,6 @@ docs/
 
 # One Line Restart
 olraf
+
+# Generated charts
+generated_charts/

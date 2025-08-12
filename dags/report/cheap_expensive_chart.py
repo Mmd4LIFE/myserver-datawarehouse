@@ -32,7 +32,7 @@ dag = DAG(
     'cheap_expensive_chart',
     default_args=default_args,
     description='Create a chart of cheapest and expensive sources',
-    schedule_interval='40 * * * *', 
+    schedule_interval='30 14 * * *', 
     catchup=False,
     tags=['report'],
 )
@@ -117,7 +117,7 @@ def get_cheapest_and_expensive_sources(**context):
 
 def create_clock_background(size=(800, 800)):
     """
-    Create a clock background image
+    Create a clock background image, with 12 at the top and all numbers in correct clock positions.
     """
     fig, ax = plt.subplots(figsize=(size[0]/100, size[1]/100), dpi=100)
     
@@ -125,9 +125,16 @@ def create_clock_background(size=(800, 800)):
     circle = plt.Circle((0.5, 0.5), 0.45, color='white', alpha=0.8, linewidth=2, edgecolor='black')
     ax.add_patch(circle)
     
+    # No rotation offset needed: standard clock math is angle = hour * 30 - 90
+    # 12 at top (0 deg), 3 at right (90 deg), 6 at bottom (180 deg), 9 at left (270 deg)
+    # So hour 1 is at 30 deg, hour 2 at 60 deg, etc.
+
     # Add hour markers
     for hour in range(12):
-        angle = hour * 30 - 90  # Start from 12 o'clock
+        # Correct clock positioning: 12 at top, numbers go clockwise
+        # Mirror the positioning: start at 90 degrees (top) and go counterclockwise in math coordinates
+        # but clockwise visually (since y-axis is flipped in display)
+        angle = 90 - hour * 30  # Start at 90 degrees and subtract for clockwise movement
         x_outer = 0.5 + 0.4 * np.cos(np.radians(angle))
         y_outer = 0.5 + 0.4 * np.sin(np.radians(angle))
         x_inner = 0.5 + 0.35 * np.cos(np.radians(angle))
@@ -135,7 +142,7 @@ def create_clock_background(size=(800, 800)):
         
         ax.plot([x_inner, x_outer], [y_inner, y_outer], 'k-', linewidth=2)
         
-        # Add hour numbers
+        # Add hour numbers in correct positions
         x_text = 0.5 + 0.32 * np.cos(np.radians(angle))
         y_text = 0.5 + 0.32 * np.sin(np.radians(angle))
         hour_label = 12 if hour == 0 else hour
@@ -145,7 +152,7 @@ def create_clock_background(size=(800, 800)):
     # Add minute markers
     for minute in range(60):
         if minute % 5 != 0:  # Skip hour positions
-            angle = minute * 6 - 90
+            angle = 90 - minute * 6  # Fix minute marker positioning to match hours
             x_outer = 0.5 + 0.4 * np.cos(np.radians(angle))
             y_outer = 0.5 + 0.4 * np.sin(np.radians(angle))
             x_inner = 0.5 + 0.38 * np.cos(np.radians(angle))
@@ -159,7 +166,6 @@ def create_clock_background(size=(800, 800)):
     ax.axis('off')
     
     return fig, ax
-
 def plot_chart(**context):
     """
     Create pie charts on clock backgrounds for cheapest and expensive sources
@@ -181,8 +187,12 @@ def plot_chart(**context):
         logging.info(f"Plotting expensive sources: {len(expensive_df)} records")
         
         # Create output directory if it doesn't exist
-        output_dir = '/tmp/chart_outputs'
+        # Use external directory mounted to /opt/airflow/generated_charts
+        output_dir = '/opt/airflow/generated_charts'
         os.makedirs(output_dir, exist_ok=True)
+        
+        # Get current datetime for filename
+        current_datetime = datetime.now().strftime('%Y%m%d_%H%M%S')
         
         # Plot for cheapest sources
         if not cheap_df.empty:
@@ -190,32 +200,28 @@ def plot_chart(**context):
             
             # Prepare data for pie chart
             sizes = cheap_df['minute_count'].values
-            labels = [f"{row['source']}\n({row['duration']})" for _, row in cheap_df.iterrows()]
             colors = cheap_df['color'].fillna('#888888').values  # Default gray if no color
+            labels = [f"{row['source']} ({row['duration']})" for _, row in cheap_df.iterrows()]
             
-            # Create pie chart overlaid on clock
-            wedges, texts, autotexts = ax_cheap.pie(
+            # Create pie chart overlaid on clock (no labels on chart)
+            wedges, texts = ax_cheap.pie(
                 sizes, 
-                labels=labels,
                 colors=colors,
-                autopct='%1.1f%%',
                 startangle=90,
                 center=(0.5, 0.5),
-                radius=0.25,
-                textprops={'fontsize': 8}
+                radius=0.25
             )
             
-            # Enhance text visibility
-            for autotext in autotexts:
-                autotext.set_color('white')
-                autotext.set_fontweight('bold')
-                autotext.set_fontsize(7)
+            # Add legend outside the clock
+            ax_cheap.legend(wedges, labels, title="Cheapest Sources", 
+                           loc="center left", bbox_to_anchor=(1, 0, 0.5, 1),
+                           fontsize=9)
             
             plt.title('Cheapest Sources Distribution (Clock View)', 
                      fontsize=16, fontweight='bold', pad=20)
             
             # Save cheapest chart
-            cheap_filename = os.path.join(output_dir, 'cheapest_sources_clock.png')
+            cheap_filename = os.path.join(output_dir, f'cheapest_sources_clock_{current_datetime}.png')
             plt.savefig(cheap_filename, dpi=300, bbox_inches='tight', 
                        facecolor='white', edgecolor='none')
             plt.close()
@@ -227,160 +233,32 @@ def plot_chart(**context):
             
             # Prepare data for pie chart
             sizes = expensive_df['minute_count'].values
-            labels = [f"{row['source']}\n({row['duration']})" for _, row in expensive_df.iterrows()]
             colors = expensive_df['color'].fillna('#888888').values  # Default gray if no color
+            labels = [f"{row['source']} ({row['duration']})" for _, row in expensive_df.iterrows()]
             
-            # Create pie chart overlaid on clock
-            wedges, texts, autotexts = ax_expensive.pie(
+            # Create pie chart overlaid on clock (no labels on chart)
+            wedges, texts = ax_expensive.pie(
                 sizes, 
-                labels=labels,
                 colors=colors,
-                autopct='%1.1f%%',
                 startangle=90,
                 center=(0.5, 0.5),
-                radius=0.25,
-                textprops={'fontsize': 8}
+                radius=0.25
             )
             
-            # Enhance text visibility
-            for autotext in autotexts:
-                autotext.set_color('white')
-                autotext.set_fontweight('bold')
-                autotext.set_fontsize(7)
+            # Add legend outside the clock
+            ax_expensive.legend(wedges, labels, title="Most Expensive Sources", 
+                               loc="center left", bbox_to_anchor=(1, 0, 0.5, 1),
+                               fontsize=9)
             
             plt.title('Most Expensive Sources Distribution (Clock View)', 
                      fontsize=16, fontweight='bold', pad=20)
             
             # Save expensive chart
-            expensive_filename = os.path.join(output_dir, 'expensive_sources_clock.png')
+            expensive_filename = os.path.join(output_dir, f'expensive_sources_clock_{current_datetime}.png')
             plt.savefig(expensive_filename, dpi=300, bbox_inches='tight', 
                        facecolor='white', edgecolor='none')
             plt.close()
             logging.info(f"Expensive sources chart saved to: {expensive_filename}")
-        
-        # Create combined chart
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
-        
-        # Cheapest sources subplot
-        if not cheap_df.empty:
-            # Create clock background for subplot
-            circle1 = plt.Circle((0.5, 0.5), 0.45, color='white', alpha=0.8, linewidth=2, edgecolor='black')
-            ax1.add_patch(circle1)
-            
-            # Add clock elements
-            for hour in range(12):
-                angle = hour * 30 - 90
-                x_outer = 0.5 + 0.4 * np.cos(np.radians(angle))
-                y_outer = 0.5 + 0.4 * np.sin(np.radians(angle))
-                x_inner = 0.5 + 0.35 * np.cos(np.radians(angle))
-                y_inner = 0.5 + 0.35 * np.sin(np.radians(angle))
-                ax1.plot([x_inner, x_outer], [y_inner, y_outer], 'k-', linewidth=1)
-                
-                x_text = 0.5 + 0.32 * np.cos(np.radians(angle))
-                y_text = 0.5 + 0.32 * np.sin(np.radians(angle))
-                hour_label = 12 if hour == 0 else hour
-                ax1.text(x_text, y_text, str(hour_label), ha='center', va='center', fontsize=8)
-            
-            # Pie chart
-            sizes = cheap_df['minute_count'].values
-            colors = cheap_df['color'].fillna('#888888').values
-            
-            wedges, _, autotexts = ax1.pie(
-                sizes, 
-                colors=colors,
-                autopct='%1.1f%%',
-                startangle=90,
-                center=(0.5, 0.5),
-                radius=0.2,
-                textprops={'fontsize': 6}
-            )
-            
-            for autotext in autotexts:
-                autotext.set_color('white')
-                autotext.set_fontweight('bold')
-            
-            ax1.set_xlim(0, 1)
-            ax1.set_ylim(0, 1)
-            ax1.set_aspect('equal')
-            ax1.axis('off')
-            ax1.set_title('Cheapest Sources', fontsize=14, fontweight='bold')
-        
-        # Expensive sources subplot
-        if not expensive_df.empty:
-            # Create clock background for subplot
-            circle2 = plt.Circle((0.5, 0.5), 0.45, color='white', alpha=0.8, linewidth=2, edgecolor='black')
-            ax2.add_patch(circle2)
-            
-            # Add clock elements
-            for hour in range(12):
-                angle = hour * 30 - 90
-                x_outer = 0.5 + 0.4 * np.cos(np.radians(angle))
-                y_outer = 0.5 + 0.4 * np.sin(np.radians(angle))
-                x_inner = 0.5 + 0.35 * np.cos(np.radians(angle))
-                y_inner = 0.5 + 0.35 * np.sin(np.radians(angle))
-                ax2.plot([x_inner, x_outer], [y_inner, y_outer], 'k-', linewidth=1)
-                
-                x_text = 0.5 + 0.32 * np.cos(np.radians(angle))
-                y_text = 0.5 + 0.32 * np.sin(np.radians(angle))
-                hour_label = 12 if hour == 0 else hour
-                ax2.text(x_text, y_text, str(hour_label), ha='center', va='center', fontsize=8)
-            
-            # Pie chart
-            sizes = expensive_df['minute_count'].values
-            colors = expensive_df['color'].fillna('#888888').values
-            
-            wedges, _, autotexts = ax2.pie(
-                sizes, 
-                colors=colors,
-                autopct='%1.1f%%',
-                startangle=90,
-                center=(0.5, 0.5),
-                radius=0.2,
-                textprops={'fontsize': 6}
-            )
-            
-            for autotext in autotexts:
-                autotext.set_color('white')
-                autotext.set_fontweight('bold')
-            
-            ax2.set_xlim(0, 1)
-            ax2.set_ylim(0, 1)
-            ax2.set_aspect('equal')
-            ax2.axis('off')
-            ax2.set_title('Most Expensive Sources', fontsize=14, fontweight='bold')
-        
-        # Add overall title and legend
-        fig.suptitle('Gold Price Sources Distribution - Yesterday Analysis', 
-                    fontsize=18, fontweight='bold', y=0.95)
-        
-        # Create legend
-        all_sources = []
-        all_colors = []
-        
-        if not cheap_df.empty:
-            all_sources.extend(cheap_df['source'].tolist())
-            all_colors.extend(cheap_df['color'].fillna('#888888').tolist())
-        
-        if not expensive_df.empty:
-            for source, color in zip(expensive_df['source'], expensive_df['color'].fillna('#888888')):
-                if source not in all_sources:
-                    all_sources.append(source)
-                    all_colors.append(color)
-        
-        # Add legend if we have sources
-        if all_sources:
-            legend_elements = [plt.Rectangle((0,0),1,1, facecolor=color, label=source) 
-                             for source, color in zip(all_sources, all_colors)]
-            fig.legend(handles=legend_elements, loc='lower center', 
-                      bbox_to_anchor=(0.5, 0.02), ncol=min(len(all_sources), 4),
-                      fontsize=10)
-        
-        # Save combined chart
-        combined_filename = os.path.join(output_dir, 'sources_comparison_clock.png')
-        plt.savefig(combined_filename, dpi=300, bbox_inches='tight', 
-                   facecolor='white', edgecolor='none')
-        plt.close()
-        logging.info(f"Combined chart saved to: {combined_filename}")
         
         return f"Charts created successfully. Files saved in: {output_dir}"
         
@@ -393,13 +271,19 @@ def send_charts_to_telegram(**context):
     Send the generated chart images to Telegram
     """
     try:
-        # Define chart file paths
-        output_dir = '/tmp/chart_outputs'
-        chart_files = [
-            os.path.join(output_dir, 'cheapest_sources_clock.png'),
-            os.path.join(output_dir, 'expensive_sources_clock.png'),
-            os.path.join(output_dir, 'sources_comparison_clock.png')
-        ]
+        # Get output directory and find the latest chart files
+        output_dir = '/opt/airflow/generated_charts'
+        
+        # Find the most recent chart files (they should be from the current run)
+        import glob
+        cheap_files = sorted(glob.glob(os.path.join(output_dir, 'cheapest_sources_clock_*.png')), reverse=True)
+        expensive_files = sorted(glob.glob(os.path.join(output_dir, 'expensive_sources_clock_*.png')), reverse=True)
+        
+        chart_files = []
+        if cheap_files:
+            chart_files.append(cheap_files[0])  # Most recent cheapest chart
+        if expensive_files:
+            chart_files.append(expensive_files[0])  # Most recent expensive chart
         
         # Check which files exist
         existing_files = [f for f in chart_files if os.path.exists(f)]

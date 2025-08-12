@@ -47,6 +47,7 @@ services:
       - ./logs:/opt/airflow/logs
       - ./plugins:/opt/airflow/plugins
       - ./config:/opt/airflow/config
+      - ./generated_charts:/opt/airflow/generated_charts
     ports:
       - "${AIRFLOW_WEBSERVER_PORT}:8080"
     command: webserver
@@ -80,6 +81,7 @@ services:
       - ./logs:/opt/airflow/logs
       - ./plugins:/opt/airflow/plugins
       - ./config:/opt/airflow/config
+      - ./generated_charts:/opt/airflow/generated_charts
     command: scheduler
     restart: always
     networks:
@@ -104,6 +106,7 @@ services:
       - ./logs:/opt/airflow/logs
       - ./plugins:/opt/airflow/plugins
       - ./config:/opt/airflow/config
+      - ./generated_charts:/opt/airflow/generated_charts
     command: celery worker
     restart: always
     networks:
@@ -132,6 +135,7 @@ services:
       - ./logs:/opt/airflow/logs
       - ./plugins:/opt/airflow/plugins
       - ./config:/opt/airflow/config
+      - ./generated_charts:/opt/airflow/generated_charts
     command: version
     networks:
       - dw-network
