@@ -123,23 +123,16 @@ def write_to_google_sheets(**context):
             logging.error("Google Sheets credentials file not found. Please add credentials to /opt/airflow/config/service-account.json")
             raise Exception("Google Sheets credentials not configured")
         
-        # Create Google Sheets client
         client = gspread.authorize(credentials)
         
-        # Open the spreadsheet
         spreadsheet = client.open_by_key(SPREADSHEET_ID)
         
-        # Get the worksheet
         worksheet = spreadsheet.worksheet(SHEET_NAME)
         
-        # Clear existing data (optional - remove if you want to append)
         worksheet.clear()
         
-        # Prepare data for Google Sheets
-        # Convert DataFrame to list of lists (including headers)
         headers = df.columns.tolist()
         
-        # Convert data rows and handle date serialization
         data_rows = []
         for _, row in df.iterrows():
             row_data = []
