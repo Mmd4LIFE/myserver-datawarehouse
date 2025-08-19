@@ -12,7 +12,6 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
-# Default arguments for the DAG
 default_args = {
     'owner': 'data_team',
     'depends_on_past': False,
@@ -23,12 +22,11 @@ default_args = {
     'retry_delay': timedelta(minutes=5),
 }
 
-# DAG definition
 dag = DAG(
     'setup_database_connections',
     default_args=default_args,
     description='Setup database connections for ETL processes',
-    schedule_interval=None,  # Manual trigger only
+    schedule_interval=None, 
     catchup=False,
     tags=['setup', 'connections'],
 )
@@ -40,7 +38,6 @@ def setup_source_connection(**context):
     try:
         session = settings.Session()
         
-        # Check if connection already exists
         existing_conn = session.query(Connection).filter(
             Connection.conn_id == 'source_crypto_bot'
         ).first()
@@ -49,7 +46,6 @@ def setup_source_connection(**context):
             logging.info("Connection 'source_crypto_bot' already exists")
             return "Connection already exists"
         
-        # Create new connection
         new_conn = Connection(
             conn_id='source_crypto_bot',
             conn_type='postgres',
@@ -79,7 +75,6 @@ def setup_dw_connection(**context):
     try:
         session = settings.Session()
         
-        # Check if connection already exists
         existing_conn = session.query(Connection).filter(
             Connection.conn_id == 'datawarehouse'
         ).first()
@@ -88,7 +83,6 @@ def setup_dw_connection(**context):
             logging.info("Connection 'datawarehouse' already exists")
             return "Connection already exists"
         
-        # Create new connection
         new_conn = Connection(
             conn_id='datawarehouse',
             conn_type='postgres',
@@ -118,7 +112,6 @@ def setup_gold_dw_connection(**context):
     try:
         session = settings.Session()
         
-        # Check if connection already exists
         existing_conn = session.query(Connection).filter(
             Connection.conn_id == 'gold_dw'
         ).first()
@@ -127,7 +120,6 @@ def setup_gold_dw_connection(**context):
             logging.info("Connection 'gold_dw' already exists")
             return "Connection already exists"
         
-        # Create new connection
         new_conn = Connection(
             conn_id='gold_dw',
             conn_type='postgres',
@@ -150,7 +142,6 @@ def setup_gold_dw_connection(**context):
         logging.error(f"Error creating gold_dw connection: {str(e)}")
         raise
 
-# Define tasks
 setup_source_task = PythonOperator(
     task_id='setup_source_connection',
     python_callable=setup_source_connection,
@@ -169,7 +160,6 @@ setup_gold_dw_task = PythonOperator(
     dag=dag,
 )
 
-# Notification tasks
 notify_success_task = PythonOperator(
     task_id='notify_success_telegram',
     python_callable=task_notify_success_legacy,
@@ -186,6 +176,5 @@ notify_failure_task = PythonOperator(
     dag=dag,
 )
 
-# Define task dependencies (can run in parallel)
 setup_source_task >> [setup_dw_task, setup_gold_dw_task] >> notify_success_task
 setup_source_task >> notify_failure_task
