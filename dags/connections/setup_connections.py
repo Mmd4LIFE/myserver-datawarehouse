@@ -33,7 +33,8 @@ dag = DAG(
 
 def setup_source_connection(**context):
     """
-    Setup connection to source database (localhost:5434)
+    Setup connection to source database (goldmarketcap database at localhost:5435)
+    Note: Connection ID kept as 'source_crypto_bot' for backward compatibility with existing DAGs
     """
     try:
         session = settings.Session()

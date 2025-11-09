@@ -39,13 +39,13 @@ dag = DAG(
 
 def extract_gold_price_data(**context):
     """
-    Extract gold price data from source database
+    Extract gold price data from goldmarketcap source database
     """
     try:
-        # Source database connection (localhost:5434)
+        # Source database connection (goldmarketcap at localhost:5435)
         source_hook = PostgresHook(
             postgres_conn_id='source_crypto_bot',
-            schema='crypto_bot'
+            schema='gold_price'
         )
         
         # SQL query to extract data
