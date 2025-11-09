@@ -35,7 +35,7 @@ def get_sources_from_gold_price(**context):
     """
     try:
         # Connect to source database
-        source_hook = PostgresHook(postgres_conn_id='source_crypto_bot')
+        source_hook = PostgresHook(postgres_conn_id='source_gold_db', schema='gold_price')
         
         # Query to get unique sources
         query = """

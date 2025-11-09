@@ -44,7 +44,7 @@ def extract_gold_price_data(**context):
     try:
         # Source database connection (goldmarketcap at localhost:5435)
         source_hook = PostgresHook(
-            postgres_conn_id='source_crypto_bot',
+            postgres_conn_id='source_gold_db',
             schema='gold_price'
         )
         

@@ -33,28 +33,45 @@ dag = DAG(
 
 def setup_source_connection(**context):
     """
-    Setup connection to source database (goldmarketcap database at localhost:5435)
-    Note: Connection ID kept as 'source_crypto_bot' for backward compatibility with existing DAGs
+    Setup connection to source database (goldmarketcap database)
+    Note: Uses goldmarketcap-postgres-1 as host (Docker internal network)
     """
     try:
         session = settings.Session()
         
+        # For Docker internal network, use container name instead of localhost
+        # Port 5432 is the internal Docker port (5435 is only for external access)
+        docker_host = 'goldmarketcap-postgres-1'
+        docker_port = 5432
+        
+        # Check if connection exists
         existing_conn = session.query(Connection).filter(
-            Connection.conn_id == 'source_crypto_bot'
+            Connection.conn_id == 'source_gold_db'
         ).first()
         
         if existing_conn:
-            logging.info("Connection 'source_crypto_bot' already exists")
-            return "Connection already exists"
+            # Update existing connection to ensure it has correct values
+            existing_conn.conn_type = 'postgres'
+            existing_conn.host = docker_host
+            existing_conn.schema = os.getenv('SOURCE_GOLD_POSTGRES_SCHEMA')
+            existing_conn.login = os.getenv('SOURCE_GOLD_POSTGRES_LOGIN')
+            existing_conn.password = os.getenv('SOURCE_GOLD_POSTGRES_PASSWORD')
+            existing_conn.port = docker_port
+            existing_conn.extra = '{"sslmode": "prefer"}'
+            session.commit()
+            session.close()
+            logging.info(f"Connection 'source_gold_db' verified: {docker_host}:{docker_port}/{os.getenv('SOURCE_GOLD_POSTGRES_SCHEMA')}")
+            return "Connection verified and updated successfully"
         
+        # Create new connection if it doesn't exist
         new_conn = Connection(
-            conn_id='source_crypto_bot',
+            conn_id='source_gold_db',
             conn_type='postgres',
-            host=os.getenv('SOURCE_CRYPTO_BOT_POSTGRES_HOST'),
-            schema=os.getenv('SOURCE_CRYPTO_BOT_POSTGRES_SCHEMA'),
-            login=os.getenv('SOURCE_CRYPTO_BOT_POSTGRES_LOGIN'),
-            password=os.getenv('SOURCE_CRYPTO_BOT_POSTGRES_PASSWORD'),
-            port=int(os.getenv('SOURCE_CRYPTO_BOT_POSTGRES_PORT')),
+            host=docker_host,
+            schema=os.getenv('SOURCE_GOLD_POSTGRES_SCHEMA'),
+            login=os.getenv('SOURCE_GOLD_POSTGRES_LOGIN'),
+            password=os.getenv('SOURCE_GOLD_POSTGRES_PASSWORD'),
+            port=docker_port,
             extra='{"sslmode": "prefer"}'
         )
         
@@ -62,11 +79,13 @@ def setup_source_connection(**context):
         session.commit()
         session.close()
         
-        logging.info("Successfully created 'source_crypto_bot' connection")
+        logging.info(f"Successfully created 'source_gold_db' connection: {docker_host}:{docker_port}/{os.getenv('SOURCE_GOLD_POSTGRES_SCHEMA')}")
         return "Connection created successfully"
         
     except Exception as e:
-        logging.error(f"Error creating source connection: {str(e)}")
+        session.rollback()
+        session.close()
+        logging.error(f"Error setting up source connection: {str(e)}")
         raise
 
 def setup_dw_connection(**context):
